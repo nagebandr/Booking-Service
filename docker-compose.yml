@@ -1,0 +1,87 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: booking_postgres
+    restart: always
+    environment:
+      POSTGRES_DB: booking_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./sql/01_init.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d booking_db"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+    networks:
+      - booking_net
+
+  booking-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    container_name: booking_app
+    restart: on-failure
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      APP_HOST: "0.0.0.0"
+      APP_PORT: "8080"
+      APP_THREADS: "4"
+      DB_HOST: "postgres"
+      DB_PORT: "5432"
+      DB_NAME: "booking_db"
+      DB_USER: "postgres"
+      DB_PASSWORD: "postgres"
+      DB_POOL_SIZE: "20"
+    ports:
+      - "8080:8080"
+    networks:
+      - booking_net
+
+  tests:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    container_name: booking_tests
+    entrypoint: ["/usr/local/bin/booking_tests"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_HOST: "postgres"
+      DB_PORT: "5432"
+      DB_NAME: "booking_db"
+      DB_USER: "postgres"
+      DB_PASSWORD: "postgres"
+      DB_POOL_SIZE: "25"
+    networks:
+      - booking_net
+    profiles:
+      - test
+
+  benchmarks:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    container_name: booking_benchmarks
+    entrypoint: ["/usr/local/bin/booking_benchmarks"]
+    networks:
+      - booking_net
+    profiles:
+      - bench
+
+volumes:
+  pgdata:
+
+networks:
+  booking_net:
+    driver: bridge
